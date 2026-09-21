@@ -1,0 +1,211 @@
+import React, { useState, useEffect } from 'react';
+import MapView from '../components/MapView';
+import { useGraph } from '../context/GraphContext';
+import { runDijkstra } from '../utils/algorithms/dijkstra';
+import { runPrims } from '../utils/algorithms/prims';
+import { runKruskals } from '../utils/algorithms/kruskals';
+
+const METRIC_LABELS = {
+  distance: { label: 'By Distance', unit: 'km' },
+  cost: { label: 'By Cost', unit: '₹' },
+  time: { label: 'By Travel Time', unit: 'h' },
+};
+
+const formatResult = (value) => {
+  if (!Number.isFinite(value)) return '∞';
+
+  return Number(value).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
+
+const PlannerPage = () => {
+  const { nodes, edges } = useGraph();
+  const [algoType, setAlgoType] = useState('shortestPath');
+  const [mstAlgo, setMstAlgo] = useState('prims');
+  const [startNodeId, setStartNodeId] = useState('');
+  const [endNodeId, setEndNodeId] = useState('');
+  const [shortestPathMetric, setShortestPathMetric] = useState('distance');
+  const [cheapestNetworkMetric, setCheapestNetworkMetric] = useState('cost');
+  const [budget, setBudget] = useState('');
+
+  const [results, setResults] = useState(null);
+  const [visualizationSteps, setVisualizationSteps] = useState([]);
+  const [currentStep, setCurrentStep] = useState(0);
+
+  // Advance through the recorded algorithm steps every 700ms, same cadence as before.
+  useEffect(() => {
+    if (visualizationSteps.length > 0 && currentStep < visualizationSteps.length - 1) {
+      const timer = setTimeout(() => {
+        setCurrentStep((s) => s + 1);
+      }, 700);
+      return () => clearTimeout(timer);
+    }
+  }, [currentStep, visualizationSteps]);
+
+  const handleRunAlgorithm = () => {
+    setResults(null);
+    setVisualizationSteps([]);
+    setCurrentStep(0);
+
+    if (algoType === 'shortestPath') {
+      if (!startNodeId || !endNodeId) return;
+      const algoResult = runDijkstra(nodes, edges, startNodeId, endNodeId, shortestPathMetric);
+      setResults({ type: 'shortestPath', algo: 'dijkstra', data: algoResult });
+      setVisualizationSteps(algoResult.steps || []);
+    } else if (algoType === 'cheapestNetwork') {
+      if (nodes.length === 0) return;
+      const algoResult =
+        mstAlgo === 'prims'
+          ? runPrims(nodes, edges, cheapestNetworkMetric)
+          : runKruskals(nodes, edges, cheapestNetworkMetric);
+      setResults({ type: 'mst', algo: mstAlgo, data: algoResult });
+      setVisualizationSteps(algoResult.steps || []);
+    }
+  };
+
+  const currentVizStep = visualizationSteps[currentStep] || {};
+  const isFinalStep = !!currentVizStep.final;
+
+  // Only show the final red path/tree once the animation has reached its last step.
+  const highlightedPath = results?.type === 'shortestPath' && isFinalStep ? results.data.path : [];
+  const highlightedEdges = results?.type === 'mst' && isFinalStep ? results.data.tree : [];
+
+  return (
+    <div className="page planner-page">
+      <h1 className="page-title">Travel Planner</h1>
+      <div className="content-container">
+        <aside className="forms-panel">
+          <section className="form-section">
+            <h2>Select Goal</h2>
+            <select
+              className="select-goal"
+              value={algoType}
+              onChange={(e) => {
+                setAlgoType(e.target.value);
+                setResults(null);
+              }}
+            >
+              <option value="shortestPath">Shortest Path</option>
+              <option value="cheapestNetwork">Cheapest Network</option>
+            </select>
+          </section>
+
+          {algoType === 'shortestPath' && (
+            <section className="form-section">
+              <h2>Shortest Path Options</h2>
+              <p className="note">Algorithm: **Dijkstra's** (weighted)</p>
+              <select value={startNodeId} onChange={(e) => setStartNodeId(e.target.value)}>
+                <option value="">Start City</option>
+                {nodes.map((node) => (
+                  <option key={node.id} value={node.id}>{node.label}</option>
+                ))}
+              </select>
+              <select value={endNodeId} onChange={(e) => setEndNodeId(e.target.value)}>
+                <option value="">End City</option>
+                {nodes.map((node) => (
+                  <option key={node.id} value={node.id}>{node.label}</option>
+                ))}
+              </select>
+              <select value={shortestPathMetric} onChange={(e) => setShortestPathMetric(e.target.value)}>
+                {Object.entries(METRIC_LABELS).map(([key, { label }]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </select>
+              <label className="note" htmlFor="budget-input">
+                Budget (₹, optional)
+                <input
+                  id="budget-input"
+                  type="number"
+                  value={budget}
+                  onChange={(e) => setBudget(e.target.value)}
+                  placeholder="e.g. 10000"
+                  style={{ marginTop: '6px' }}
+                />
+              </label>
+              <button onClick={handleRunAlgorithm} className="button primary-button">
+                Find Path
+              </button>
+            </section>
+          )}
+
+          {algoType === 'cheapestNetwork' && (
+            <section className="form-section">
+              <h2>Cheapest Network Options</h2>
+              <select value={mstAlgo} onChange={(e) => setMstAlgo(e.target.value)}>
+                <option value="prims">Prim's</option>
+                <option value="kruskals">Kruskal's</option>
+              </select>
+              <select value={cheapestNetworkMetric} onChange={(e) => setCheapestNetworkMetric(e.target.value)}>
+                {Object.entries(METRIC_LABELS).map(([key, { label }]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </select>
+              <button onClick={handleRunAlgorithm} className="button primary-button">
+                Find Network
+              </button>
+            </section>
+          )}
+
+          <section className="output-section">
+            <h2>Results</h2>
+            {results && (
+              <>
+                {results.type === 'shortestPath' && results.data.path.length > 0 ? (
+                  <>
+                    <h3 className="result-title">Trip</h3>
+                    <p className="trip-route">
+                      {results.data.path.map((id) => nodes.find((n) => n.id === id)?.label).join(' -> ')} 
+                    </p>
+                    <p>Distance: {formatResult(results.data.metrics.distance)} km</p>
+                    <p>Estimated cost: ₹ {formatResult(results.data.metrics.cost)}</p>
+                    <p>Travel time: {formatResult(results.data.metrics.time)} hr</p>
+                    {budget !== '' && (
+                      Number(budget) >= results.data.metrics.cost ? (
+                        <p className="budget-ok">✓ Within budget (₹ {Number(budget).toLocaleString('en-IN')})</p>
+                      ) : (
+                        <p className="budget-over">
+                          ✕ Over budget by ₹{(results.data.metrics.cost - Number(budget)).toLocaleString('en-IN')}
+                        </p>
+                      )
+                    )}
+                  </>
+                ) : results.type === 'shortestPath' ? (
+                  <p>No path found.</p>
+                ) : null}
+
+                {results.type === 'mst' && (
+                  <>
+                    <h3 className="result-title">Cheapest Network ({mstAlgo.toUpperCase()})</h3>
+                    <p>
+                      Minimum {METRIC_LABELS[cheapestNetworkMetric].label}:{' '}
+                      {formatResult(results.data.cost)} {METRIC_LABELS[cheapestNetworkMetric].unit}
+                      </p>
+                    <p>Total Edges: {results.data.tree.length}</p>
+                  </>
+                )}
+              </>
+            )}
+          </section>
+        </aside>
+
+        <main className="graph-and-output-panel">
+          <section className="graph-container">
+            <MapView
+              nodes={nodes}
+              edges={edges}
+              highlightedPath={highlightedPath}
+              highlightedEdges={highlightedEdges}
+              visualizationStep={currentVizStep}
+              algorithmType={results?.algo}
+            />
+          </section>
+        </main>
+      </div>
+    </div>
+  );
+};
+
+export default PlannerPage;
