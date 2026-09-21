@@ -50,6 +50,3 @@ This project combines **Web Development (ReactJS + CSS)** with **Graph Algorithm
 
 ### Planner Page 
 ![Planner Page](./5.png)
-## Demo Video
-
-https://github.com/J-aswanth/Travel-Planner/blob/main/demo.mp4
